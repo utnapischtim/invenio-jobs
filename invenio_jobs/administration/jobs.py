@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright (C) 2024 CERN.
+# Copyright (C) 2025 Graz University of Technology
 #
 # Invenio-Jobs is free software; you can redistribute it and/or
 # modify it under the terms of the MIT License; see LICENSE file for more
@@ -18,7 +19,7 @@ from invenio_i18n import lazy_gettext as _
 
 from invenio_jobs.config import JOBS_QUEUES
 from invenio_jobs.models import Task
-from invenio_jobs.services.schema import RunSchema
+from invenio_jobs.services.schema import JobEditSchema, JobSchema, RunSchema
 from invenio_jobs.services.ui_schema import ScheduleUISchema
 
 
@@ -176,6 +177,49 @@ class JobsEditView(JobsAdminMixin, JobsFormMixin, AdminResourceEditView):
     url = "/jobs/<pid_value>/edit"
     title = "Job Edit"
     list_view_name = "jobs"
+
+    def get(self, pid_value=None):
+        """Update GET view method with specific schema."""
+        schema = JobEditSchema()
+        serialized_schema = self._schema_to_json(schema)
+        form_fields = self.form_fields
+        return self.render(
+            **{
+                "resource_schema": serialized_schema,
+                "form_fields": form_fields,
+                "pid": pid_value,
+                "api_endpoint": self.get_api_endpoint(),
+                "title": self.title,
+                "list_endpoint": self.get_list_view_endpoint(),
+                "ui_config": self.form_fields,
+            }
+        )
+
+    @property
+    def form_fields(self):
+        """Update form fields for Job Edit."""
+        edit_form_fields = super().form_fields
+        edit_form_fields["args"] = {
+            "order": 9,
+            "type": "dynamic",
+            "endpoint": "/api/tasks/<item_id>/args",
+            "depends_on": "task",
+        }
+        edit_form_fields["default_args"] = {
+            "order": 10,
+            "text": _("Current Job Configuration"),
+            "description": _("The configuration used for this Job."),
+        }
+        edit_form_fields["custom_args"] = {
+            "order": 11,
+            "text": _("Custom Arguments"),
+            "description": _(
+                "When provided, the input below "
+                "will override any arguments specified above."
+            ),
+        }
+
+        return edit_form_fields
 
 
 class JobsCreateView(JobsAdminMixin, JobsFormMixin, AdminResourceCreateView):

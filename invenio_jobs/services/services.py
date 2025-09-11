@@ -10,6 +10,7 @@
 
 """Service definitions."""
 
+import json
 import uuid
 from datetime import datetime
 
@@ -167,7 +168,10 @@ class JobsService(BaseService):
         )
 
         for key, value in valid_data.items():
-            setattr(job, key, value)
+            if key == "run_args":
+                job.set_run_args(value)
+            else:
+                setattr(job, key, value)
         uow.register(ModelCommitOp(job))
         return self.result_item(self, identity, job, links_tpl=self.links_item_tpl)
 
@@ -255,6 +259,7 @@ class RunsService(BaseService):
         """Create a run."""
         self.require_permission(identity, "create")
         job = get_job(job_id)
+
         # TODO: See if we need extra validation (e.g. tasks, args, etc.)
         valid_data, errors = self.schema.load(
             data,

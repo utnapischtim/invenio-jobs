@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright (C) 2024 CERN.
+# Copyright (C) 2025 Graz University of Technology.
 #
 # Invenio-Jobs is free software; you can redistribute it and/or modify it
 # under the terms of the MIT License; see LICENSE file for more details.
@@ -42,6 +43,7 @@ def test_simple_flow(mock_apply_async, app, db, client, user):
         "task": "update_expired_embargos",
         "default_queue": "low",
         "default_args": '{"since": null}',
+        "run_args": None,
         "schedule": {"type": "interval", "hours": 4},
         "created": res.json["created"],
         "updated": res.json["updated"],
@@ -55,10 +57,18 @@ def test_simple_flow(mock_apply_async, app, db, client, user):
     assert res.json == expected_job
 
     # Activate the job (i.e. update)
-    res = client.put(f"/jobs/{job_id}", json={**job_payload, "active": True})
+    job_payload["args"] = {}
+    job_payload["custom_args"] = "{}"
+
+    res = client.put(
+        f"/jobs/{job_id}",
+        json={**job_payload, "active": True},
+    )
     assert res.status_code == 200
     expected_job["active"] = True
     expected_job["updated"] = res.json["updated"]
+    expected_job["run_args"] = {}
+
     assert res.json == expected_job
 
     list_repr = deepcopy(expected_job)
@@ -239,6 +249,64 @@ def test_simple_flow(mock_apply_async, app, db, client, user):
     assert res.status_code == 202
     assert res.json["status"] == "CANCELLING"
 
+    # edit the job args
+    job_payload["args"] = {
+        "test_flag": True,
+        "since": "2025-11-20T12:18:00+00:00",
+    }
+    job_payload[
+        "custom_args"
+    ] = """
+    {
+        "custom_arg1": "value1",
+        "custom_arg2": {"nested_arg1": "nested_value1"},
+        "test_flag": false
+    }
+    """
+    res = client.put(
+        f"/jobs/{job_id}",
+        json={**job_payload, "active": True},
+    )
+    assert res.status_code == 200
+    expected_job["run_args"] = {
+        "test_flag": True,
+        "since": "2025-11-20T12:18:00+00:00",
+        "custom_args": {
+            "custom_arg1": "value1",
+            "custom_arg2": {"nested_arg1": "nested_value1"},
+            "test_flag": False,
+        },
+    }
+    expected_job["default_args"] = (
+        '{"test_flag": false, "custom_arg1": "value1", "custom_arg2": {"nested_arg1": "nested_value1"}}'
+    )
+
+    assert res.json["run_args"] == expected_job["run_args"]
+    assert res.json["default_args"] == expected_job["default_args"]
+
+    # start a run with the new job args and check if it uses the provided defaults
+    res = client.post(
+        f"/jobs/{job_id}/runs",
+        json={
+            "title": "Manually triggered run",
+            "queue": "celery",
+        },
+    )
+    assert res.status_code == 201
+    expected_run_args = {
+        "args": {
+            "custom_arg1": "value1",
+            "custom_arg2": {"nested_arg1": "nested_value1"},
+            "test_flag": False,
+        },
+        "job_arg_schema": "custom",
+    }
+
+    res = client.get(f"/jobs/{job_id}/runs")
+    assert res.status_code == 200
+    assert res.json["hits"]["total"] == 3
+    assert res.json["hits"]["hits"][0]["args"] == expected_run_args
+
     # Search for log jobs, first set the logger level to INFO
     # and log a message by setting the job context
     job_context.set(dict(job_id=job_id, run_id=run_id, identity_id=str(user.id)))
@@ -320,6 +388,7 @@ def test_jobs_create(db, client):
         "task": "update_expired_embargos",
         "default_queue": "celery",
         "default_args": '{"since": null}',
+        "run_args": None,
         "schedule": None,
         "created": res.json["created"],
         "updated": res.json["updated"],
@@ -352,6 +421,7 @@ def test_jobs_create(db, client):
         "task": "update_expired_embargos",
         "default_queue": "low",
         "default_args": '{"since": null}',
+        "run_args": None,
         "schedule": {"type": "interval", "hours": 4},
         "created": res.json["created"],
         "updated": res.json["updated"],
@@ -376,6 +446,8 @@ def test_jobs_update(db, client, jobs):
             "active": False,
             "default_queue": "celery",
             "default_args": "{}",
+            "args": {},
+            "custom_args": "{}",
         },
     )
     assert res.status_code == 200
@@ -387,6 +459,7 @@ def test_jobs_update(db, client, jobs):
         "task": "update_expired_embargos",
         "default_queue": "celery",
         "default_args": '{"since": null}',
+        "run_args": {},
         "schedule": {"type": "interval", "hours": 2},
         "created": jobs.simple["created"],
         "updated": res.json["updated"],
@@ -421,6 +494,7 @@ def test_jobs_search(client, jobs):
         "task": "update_expired_embargos",
         "default_queue": "low",
         "default_args": '{"since": null}',
+        "run_args": None,
         "schedule": {
             "type": "interval",
             "hours": 4,
@@ -461,6 +535,7 @@ def test_jobs_search(client, jobs):
         "task": "update_expired_embargos",
         "default_queue": "low",
         "default_args": '{"since": null}',
+        "run_args": None,
         "schedule": {
             "type": "crontab",
             "minute": "0",
@@ -505,6 +580,7 @@ def test_jobs_search(client, jobs):
         "task": "update_expired_embargos",
         "default_queue": "low",
         "default_args": '{"since": null}',
+        "run_args": None,
         "schedule": None,
         "last_run": {
             "title": "Manual run",
@@ -592,6 +668,7 @@ def test_job_template_args(mock_apply_async, app, db, client, user):
             "arg2": "{{ job.title | upper }}",
             "kwarg1": "{{ last_run.created.isoformat() if last_run else None }}",
         },
+        "run_args": None,
         "schedule": None,
         "last_run": None,
         "created": res.json["created"],

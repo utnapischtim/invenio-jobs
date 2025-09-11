@@ -2,6 +2,7 @@
 #
 # Copyright (C) 2024 CERN.
 # Copyright (C) 2024 University of Münster.
+# Copyright (C) 2025 Graz University of Technology
 #
 # Invenio-Jobs is free software; you can redistribute it and/or modify it
 # under the terms of the MIT License; see LICENSE file for more details.
@@ -14,12 +15,13 @@ from .config import (
     RunsServiceConfig,
     TasksServiceConfig,
 )
-from .schema import JobLogEntrySchema, JobSchema
+from .schema import JobEditSchema, JobLogEntrySchema, JobSchema
 from .services import JobLogService, JobsService, RunsService, TasksService
 
 __all__ = (
     "JobSchema",
     "JobLogEntrySchema",
+    "JobEditSchema",
     "JobsService",
     "JobsServiceConfig",
     "RunsService",

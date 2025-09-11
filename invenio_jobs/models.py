@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright (C) 2024 CERN.
+# Copyright (C) 2025 Graz University of Technology.
 #
 # Invenio-Jobs is free software; you can redistribute it and/or modify it
 # under the terms of the MIT License; see LICENSE file for more details.
@@ -39,6 +40,10 @@ def _dump_dict(model):
     return {c.key: getattr(model, c.key) for c in sa.inspect(model).mapper.column_attrs}
 
 
+def _job_has_custom_arguments_set(job):
+    return job.run_args and job.run_args.get("custom_args")
+
+
 class Job(db.Model, Timestamp):
     """Job model."""
 
@@ -51,6 +56,7 @@ class Job(db.Model, Timestamp):
     task = db.Column(db.String(255))
     default_queue = db.Column(db.String(64))
     schedule = db.Column(JSON, nullable=True)
+    run_args = db.Column(JSON, nullable=True)
 
     @property
     def last_run(self):
@@ -72,7 +78,12 @@ class Job(db.Model, Timestamp):
     @property
     def default_args(self):
         """Compute default job arguments."""
-        return Task.get(self.task)._build_task_arguments(job_obj=self)
+        custom_args = None
+        if self.run_args:
+            custom_args = self.run_args.get("custom_args")
+        return Task.get(self.task)._build_task_arguments(
+            custom_args=custom_args, job_obj=self
+        )
 
     @property
     def parsed_schedule(self):
@@ -86,6 +97,18 @@ class Job(db.Model, Timestamp):
             return crontab(**schedule)
         elif stype == "interval":
             return timedelta(**schedule)
+
+    def set_run_args(self, value):
+        """Custom setter for run_args.
+
+        If Job has already custom_args set and the new value is empty,
+        keep the args in DB.
+        """
+        if self.run_args:
+            current_custom_args = self.run_args.get("custom_args")
+            if not value.get("custom_args") and current_custom_args:
+                value["custom_args"] = current_custom_args
+        self.run_args = value
 
     def dump(self):
         """Dump the job as a dictionary."""
@@ -163,8 +186,13 @@ class Run(db.Model, Timestamp):
     @classmethod
     def create(cls, job, **kwargs):
         """Create a new run."""
-        if "args" not in kwargs:
+        if "args" not in kwargs and not _job_has_custom_arguments_set(job):
             kwargs["args"] = cls.generate_args(job)
+        elif (
+            "args" not in kwargs or not kwargs.get("args").get("custom_args")
+        ) and _job_has_custom_arguments_set(job):
+            task_arguments = job.run_args
+            kwargs["args"] = cls.generate_args(job, task_arguments=task_arguments)
         else:
             task_arguments = deepcopy(kwargs["args"])
             kwargs["args"] = cls.generate_args(job, task_arguments=task_arguments)

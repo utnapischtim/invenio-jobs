@@ -34,13 +34,13 @@ class JobEntry(ScheduleEntry):
     @classmethod
     def from_job(cls, job):
         """Create JobEntry from job."""
-        default_args = json.dumps(job.default_args, default=job_arg_json_dumper)
-        default_args = json.loads(default_args)
+        args = json.dumps(job.run_args or job.default_args, default=job_arg_json_dumper)
+        args = json.loads(args)
         return cls(
             job=job,
             name=job.title,
             schedule=job.parsed_schedule,
-            kwargs={"kwargs": default_args},
+            kwargs={"kwargs": args},
             task=execute_run.name,
             options={"queue": job.default_queue},
             last_run_at=(job.last_run and job.last_run.created),
@@ -111,7 +111,9 @@ class RunScheduler(Scheduler):
     def create_run(self, entry):
         """Create run from a JobEntry."""
         job = db.session.get(Job, entry.job.id)
-        run = Run.create(job=job, task_id=uuid.uuid4())
+        # at this point, job arguments should be set, so we send them from here
+        # to avoid recomputing them
+        run = Run.create(job=job, task_id=uuid.uuid4(), args=entry.kwargs.get("kwargs"))
         db.session.add(run)
         db.session.commit()
         return run

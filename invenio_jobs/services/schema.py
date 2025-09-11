@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright (C) 2024 CERN.
+# Copyright (C) 2025 Graz University of Technology.
 #
 # Invenio-Jobs is free software; you can redistribute it and/or modify it
 # under the terms of the MIT License; see LICENSE file for more details.
@@ -170,6 +171,7 @@ class JobSchema(Schema, FieldPermissionsMixin):
     )
 
     default_args = fields.Raw(dump_only=True, dump_default=dict, load_default=dict)
+    run_args = fields.Dict(allow_none=True)
 
     schedule = fields.Nested(ScheduleSchema, allow_none=True, load_default=None)
 
@@ -184,6 +186,44 @@ class JobSchema(Schema, FieldPermissionsMixin):
             if value:
                 last_runs[key] = RunSchema().dump(value.dump())
         return obj
+
+    @pre_load
+    def args_adapter(self, obj, many, **kwargs):
+        """Adapt UI schema args to the service schema."""
+        if "args" in obj:
+            args = obj.pop("args")
+            obj["run_args"] = {
+                **args,
+            }
+            custom_args = json.loads(obj.pop("custom_args", "{}"))
+            if custom_args:
+                obj["run_args"]["custom_args"] = custom_args
+        return obj
+
+
+class JobEditSchema(JobSchema):
+    """Schema for Job Edit."""
+
+    task = fields.String(
+        dump_only=True,
+        validate=LazyOneOf(choices=lambda: [name for name, t in Task.all().items()]),
+    )
+    args = fields.Nested(
+        lambda: JobArgumentsSchema,
+        metadata={
+            "type": "dynamic",
+            "endpoint": "/api/tasks/<item_id>/args",
+            "depends_on": "task",
+        },
+    )
+    custom_args = fields.Raw(
+        load_default=dict,
+        allow_none=True,
+        metadata={
+            "title": "Custom args",
+            "description": "Advanced configuration for seasoned administrators.",
+        },
+    )
 
 
 class UserSchema(OneOfSchema):
@@ -281,11 +321,11 @@ class RunSchema(Schema, FieldPermissionsMixin):
     )
 
     @post_load
-    def pick_args(self, obj, many, **kwargs):
-        """Choose custom or default args."""
+    def load_custom_args(self, obj, many, **kwargs):
+        """Load custom args if present."""
         custom_args = obj.pop("custom_args")
         if custom_args:
-            obj["args"] = json.loads(custom_args)
+            obj["args"]["custom_args"] = json.loads(custom_args)
         return obj
 
 
