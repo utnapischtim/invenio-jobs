@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright (C) 2024 CERN.
+# Copyright (C) 2025 Graz University of Technology.
 #
 # Invenio-Jobs is free software; you can redistribute it and/or modify it
 # under the terms of the MIT License; see LICENSE file for more details.
@@ -8,7 +9,7 @@
 """Tasks."""
 
 import traceback
-from datetime import datetime
+from datetime import datetime, timezone
 
 import sqlalchemy as sa
 from celery import shared_task
@@ -51,6 +52,7 @@ def execute_run(self, run_id, identity_id, kwargs=None):
     """Execute and manage a run state and task."""
     run = Run.query.filter_by(id=run_id).one_or_none()
     task = current_jobs.registry.get(run.job.task).task
+
     with set_job_context(
         {
             "run_id": str(run_id),
@@ -58,7 +60,9 @@ def execute_run(self, run_id, identity_id, kwargs=None):
             "identity_id": str(identity_id),
         }
     ):
-        update_run(run, status=RunStatusEnum.RUNNING, started_at=datetime.utcnow())
+        update_run(
+            run, status=RunStatusEnum.RUNNING, started_at=datetime.now(timezone.utc)
+        )
         try:
             current_app.logger.debug(
                 f"Executing run {run.id} with task {task.name} and args {kwargs}"
@@ -80,7 +84,7 @@ def execute_run(self, run_id, identity_id, kwargs=None):
             update_run(
                 run,
                 status=RunStatusEnum.CANCELLED,
-                finished_at=datetime.utcnow(),
+                finished_at=datetime.now(timezone.utc),
                 message=message,
             )
             raise e
@@ -100,7 +104,7 @@ def execute_run(self, run_id, identity_id, kwargs=None):
             update_run(
                 run,
                 status=RunStatusEnum.PARTIAL_SUCCESS,
-                finished_at=datetime.utcnow(),
+                finished_at=datetime.now(timezone.utc),
                 message=message,
                 errored_entries=errored_entries_count,
             )
@@ -118,7 +122,7 @@ def execute_run(self, run_id, identity_id, kwargs=None):
             update_run(
                 run,
                 status=RunStatusEnum.FAILED,
-                finished_at=datetime.utcnow(),
+                finished_at=datetime.now(timezone.utc),
                 message=message,
             )
             return
@@ -130,5 +134,5 @@ def execute_run(self, run_id, identity_id, kwargs=None):
         update_run(
             run,
             status=RunStatusEnum.SUCCESS,
-            finished_at=datetime.utcnow(),
+            finished_at=datetime.now(timezone.utc),
         )
